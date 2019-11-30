@@ -10,6 +10,7 @@ use Encode;
 use Bencode qw(bencode bdecode);
 use Data::Dumper;
 use LWP::Simple qw(get);
+use Carp::Assert;
 
 #binmode STDOUT, ":encoding(UTF-8)";
 
@@ -53,8 +54,12 @@ my $thr =
   . "&left="
   . $left;
 
-my $response = get($thr) or die "Cannot connect";
-say Dumper bdecode($response);
+my $response = get($thr) or die "Cannot connect to tracker";
+my $tracker_response = bdecode($response);
 
+my $peers = $tracker_response->{'peers'};
+say $peers->[0]->{'port'};
+say $peers->[0]->{'peer id'};
+say $peers->[0]->{'ip'};
 
 EV::run();
