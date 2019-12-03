@@ -67,20 +67,23 @@ my $peers = $tracker_response->{'peers'};   # {port, peert id, ip}
 my $pstr = "BitTorrent protocol";
 my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_id;
 
-async {
-    tcp_connect $peers->[0]->{'ip'}, $peers->[0]->{'port'}, Coro::rouse_cb;
-    my $fh = unblock +(Coro::rouse_wait)[0];
+for my $n (0..5) {
+    async {
+        tcp_connect $peers->[$n]->{'ip'}, $peers->[$n]->{'port'}, Coro::rouse_cb;
+        my $fh = unblock +(Coro::rouse_wait)[0];
 
-    my $buf;
+        my $buf;
 
-    $fh->syswrite($message);
-    $fh->sysread($buf, 200);
+        $fh->syswrite($message);
+        $fh->sysread($buf, 200);
 
-    my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r) = unpack 'C/a a8 a20 a20', $buf;
+        my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r) = unpack 'C/a a8 a20 a20', $buf;
 
-    say "Peer info hash: ", $info_hash_r;
-    say "Peer id: ", $peer_id_r;
-};
+        say "Peer < $n > info hash: ", $info_hash_r;
+        say "Peer < $n > id: ", $peer_id_r;
+    };
+}
+
 
 cede;
 EV::loop();
