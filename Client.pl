@@ -7,16 +7,12 @@ use Coro;
 use Coro::AnyEvent;
 use AnyEvent::Socket;
 use Coro::Handle;
-#use AnyEvent::Handle;
 use Digest::SHA1 qw(sha1);
 use Encode;
 use Bencode qw(bencode bdecode);
 use Data::Dumper;
 use LWP::Simple qw(get);
 use Carp::Assert;
-
-
-#binmode STDOUT, ":encoding(UTF-8)";
 
 # TODO
 # 1. make it work for ubuntu torrent
