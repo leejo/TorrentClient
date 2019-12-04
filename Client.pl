@@ -8,6 +8,7 @@ use Coro::AnyEvent;
 use AnyEvent::Socket;
 use Coro::Handle;
 use Digest::SHA1 qw(sha1);
+use JSON::XS;
 use Encode;
 use Bencode qw(bencode bdecode);
 use Data::Dumper;
@@ -65,6 +66,13 @@ my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_
 my $bitfields_num = length($torrent->{info}->{pieces}) / 20;
 my $bitfield_num_bytes = 4 + 2 + $bitfields_num / 8;  # length - 4 bytes, id - 2 bytes, $bitfields_num / 8 - bitfields bytes
 
+my $piece_channel = new Coro::Channel;
+for my $n (0..$bitfields_num) {
+    $piece_channel->put($n);
+}
+
+my $data_channel = new Coro::Channel; # put piece data in json format, {piece_num, piece_data, piece_percent, piece size}
+
 for my $n (0..5) {
     async {
         tcp_connect $peers->[$n]->{'ip'}, $peers->[$n]->{'port'}, Coro::rouse_cb;
@@ -81,11 +89,29 @@ for my $n (0..5) {
         my ($bitfield_length, $bitfield_id, $bitfield_data) = unpack 'N1 C1' . ' B' . $bitfields_num, $bitfield;
 
         if( $info_hash eq $info_hash_r ) {
+            say $piece_channel->size;
             # ...
+            # get a piece number from piece_channel, download and put that in $data_channel, if that piece doesnt exists on the peer, put that piece number back on to piece_channel, so that other worker may download it.
         }
     };
 }
 
+async {
+    my $size;
+    my $percent;
+    
+    while (1) {
+        Coro::AnyEvent::sleep 30;
+        if( $piece_channel->size == 0 ) {
+            # get data from $data_channel, arrange it in order and write that to a file
+        }
+        else {
+            $size = $data_channel->size;
+            $percent = $size * 100 / $bitfields_num;
+            say "$percent % done";
+        }
+    }
+};
 
 cede;
 EV::loop();
