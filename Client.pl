@@ -12,7 +12,7 @@ use Encode;
 use Bencode qw(bencode bdecode);
 use Data::Dumper;
 use LWP::Simple qw(get);
-use Carp::Assert;
+
 
 # TODO
 # 1. make it work for ubuntu torrent
@@ -62,20 +62,27 @@ my $peers = $tracker_response->{'peers'};   # {port, peert id, ip}
 my $pstr = "BitTorrent protocol";
 my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_id;
 
+my $bitfields_num = length($torrent->{info}->{pieces}) / 20;
+my $bitfield_num_bytes = 4 + 2 + $bitfields_num / 8;  # length - 4 bytes, id - 2 bytes, $bitfields_num / 8 - bitfields bytes
+
 for my $n (0..5) {
     async {
         tcp_connect $peers->[$n]->{'ip'}, $peers->[$n]->{'port'}, Coro::rouse_cb;
         my $fh = unblock +(Coro::rouse_wait)[0];
 
         my $buf;
+        my $bitfield;
 
         $fh->syswrite($message);
-        $fh->sysread($buf, 350);
+        $fh->sysread($buf, length($message));
+        $fh->sysread($bitfield, $bitfield_num_bytes);
 
         my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r) = unpack 'C/a a8 a20 a20', $buf;
+        my ($bitfield_length, $bitfield_id, $bitfield_data) = unpack 'N1 C1' . ' B' . $bitfields_num, $bitfield;
 
-        say "Peer < $n > info hash: ", $info_hash_r;
-        say "Peer < $n > id: ", $peer_id_r;
+        if( $info_hash eq $info_hash_r ) {
+            # ...
+        }
     };
 }
 
