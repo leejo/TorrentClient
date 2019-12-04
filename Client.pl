@@ -31,8 +31,7 @@ fun torrent_file_content($file) {
 my $torrent_file = 'ubuntu-18.04.3-desktop-amd64.iso.torrent';
 my $torrent      = bdecode( torrent_file_content($torrent_file) );
 
-my $info_hash =
-  Encode::encode( "ISO-8859-1", sha1( bencode( $torrent->{info} ) ) );
+my $info_hash  = Encode::encode( "ISO-8859-1", sha1( bencode( $torrent->{info} ) ) );
 my $announce   = $torrent->{'announce'};
 my $port       = 6881;
 my $left       = $torrent->{'info'}->{'length'};
@@ -71,7 +70,7 @@ for my $n (0..5) {
         my $buf;
 
         $fh->syswrite($message);
-        $fh->sysread($buf, 200);
+        $fh->sysread($buf, 350);
 
         my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r) = unpack 'C/a a8 a20 a20', $buf;
 
