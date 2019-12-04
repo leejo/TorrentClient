@@ -99,9 +99,9 @@ for my $n (0..5) {
 async {
     my $size;
     my $percent;
-    
+
     while (1) {
-        Coro::AnyEvent::sleep 30;
+        Coro::AnyEvent::sleep 60;
         if( $piece_channel->size == 0 ) {
             # get data from $data_channel, arrange it in order and write that to a file
         }
@@ -112,6 +112,25 @@ async {
         }
     }
 };
+
+
+my @lines;
+my $idle_w;
+my $io_w = AnyEvent->io (fh => \*STDIN, poll => 'r', cb => sub {
+   push @lines, scalar <STDIN>;
+   $idle_w ||= AnyEvent->idle (cb => sub {
+      if (my $line = shift @lines) {
+         chomp($line);
+         if( $line eq "off" ) {
+             say "Preparing for turn off";
+             # write data from $data_channel to a file and kill
+         }
+      } else {
+         undef $idle_w;
+      }
+   });
+});
+
 
 cede;
 EV::loop();
