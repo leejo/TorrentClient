@@ -66,8 +66,6 @@ my $peers = $tracker_response->{'peers'};
 my $pstr = "BitTorrent protocol";
 my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_id;
 
-say $message;
-
 my $bitfields_num = length($torrent->{info}->{pieces}) / 20;
 my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);
 
