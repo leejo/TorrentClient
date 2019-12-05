@@ -16,7 +16,7 @@ use Data::Dumper;
 use LWP::Simple qw(get);
 
 
-# TODO
+# TODO:
 # 1. make it work for ubuntu torrent
 
 fun torrent_file_content($file) {
@@ -67,14 +67,27 @@ my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_
 say $message;
 
 my $bitfields_num = length($torrent->{info}->{pieces}) / 20;
-my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);  # length - 4 bytes, id - 1 bytes, $bitfields_num / 8 - bitfields bytes
+my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);
+
+# length - 4 bytes, id - 1 bytes,
+# $bitfields_num / 8 - bitfields bytes
 
 my $piece_channel = new Coro::Channel;
 for my $n (0..$bitfields_num) {
     $piece_channel->put($n);
 }
 
-my $data_channel = new Coro::Channel; # put piece data in json format, {piece_num, piece_data, piece_percent, piece_size}
+my $data_channel = new Coro::Channel;
+
+# put piece data in json format,
+# {piece_num, piece_data, piece_percent, piece_size}
+
+# TODO:
+# get a piece number from piece_channel,
+# download and put that in $data_channel,
+# if that piece doesnt exists on the peer,
+# put that piece number back on to piece_channel,
+# other worker may download it.
 
 for my $n (0..5) {
     async {
@@ -88,7 +101,6 @@ for my $n (0..5) {
         $fh->sysread($buf, length($message));
         $fh->sysread($bitfield, $bitfield_num_bytes);
 
-
         my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r, $c) = unpack 'C/a a8 a20 a20 a*', $buf;
         my ($bitfield_length, $bitfield_id, $bitfield_data) = unpack 'N1 C1' . ' B' . $bitfields_num, $bitfield;
 
@@ -100,13 +112,10 @@ for my $n (0..5) {
             $fh->sysread($choke_buf, 5);
 
             my ($len, $id) = unpack 'Nc', $choke_buf;
-            if( $id == 1 ) {
-                say "Got Unchoke";
+            if( $id == 1 ) {    # Got Unchoke
+                # ...
             }
 
-
-            # ...
-            # get a piece number from piece_channel, download and put that in $data_channel, if that piece doesnt exists on the peer, put that piece number back on to piece_channel, so that other worker may download it.
         }
     };
 }
