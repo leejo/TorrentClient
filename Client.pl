@@ -56,13 +56,15 @@ my $thr =
   . "&left="
   . $left;
 
-my $response         = get($thr) or die "Cannot connect to tracker";
+my $response = get($thr) or die "Cannot connect to tracker";
 my $tracker_response = bdecode($response);
 
 my $peers = $tracker_response->{'peers'};   # {port, peert id, ip}
 
 my $pstr = "BitTorrent protocol";
 my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_id;
+
+say $message;
 
 my $bitfields_num = length($torrent->{info}->{pieces}) / 20;
 my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);  # length - 4 bytes, id - 1 bytes, $bitfields_num / 8 - bitfields bytes
@@ -72,7 +74,7 @@ for my $n (0..$bitfields_num) {
     $piece_channel->put($n);
 }
 
-my $data_channel = new Coro::Channel; # put piece data in json format, {piece_num, piece_data, piece_percent, piece size}
+my $data_channel = new Coro::Channel; # put piece data in json format, {piece_num, piece_data, piece_percent, piece_size}
 
 for my $n (0..5) {
     async {
@@ -86,10 +88,23 @@ for my $n (0..5) {
         $fh->sysread($buf, length($message));
         $fh->sysread($bitfield, $bitfield_num_bytes);
 
-        my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r) = unpack 'C/a a8 a20 a20', $buf;
+
+        my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r, $c) = unpack 'C/a a8 a20 a20 a*', $buf;
         my ($bitfield_length, $bitfield_id, $bitfield_data) = unpack 'N1 C1' . ' B' . $bitfields_num, $bitfield;
 
         if( $info_hash eq $info_hash_r ) {
+            my $interested =  pack('Nc', 1, 2);
+            my $choke_buf;
+
+            $fh->syswrite($interested);
+            $fh->sysread($choke_buf, 5);
+
+            my ($len, $id) = unpack 'Nc', $choke_buf;
+            if( $id == 1 ) {
+                say "Got Unchoke";
+            }
+
+
             # ...
             # get a piece number from piece_channel, download and put that in $data_channel, if that piece doesnt exists on the peer, put that piece number back on to piece_channel, so that other worker may download it.
         }
@@ -97,40 +112,38 @@ for my $n (0..5) {
 }
 
 async {
-    my $size;
-    my $percent;
-
     while (1) {
         Coro::AnyEvent::sleep 60;
+
         if( $piece_channel->size == 0 ) {
             # get data from $data_channel, arrange it in order and write that to a file
-        }
-        else {
-            $size = $data_channel->size;
-            $percent = $size * 100 / $bitfields_num;
-            say "$percent % done";
         }
     }
 };
 
-
 my @lines;
 my $idle_w;
 my $io_w = AnyEvent->io (fh => \*STDIN, poll => 'r', cb => sub {
-   push @lines, scalar <STDIN>;
-   $idle_w ||= AnyEvent->idle (cb => sub {
-      if (my $line = shift @lines) {
-         chomp($line);
-         if( $line eq "off" ) {
-             say "Preparing for turn off";
-             # write data from $data_channel to a file and kill
-         }
-      } else {
-         undef $idle_w;
-      }
-   });
+    my $size;
+    my $percent;
+    push @lines, scalar <STDIN>;
+    $idle_w ||= AnyEvent->idle (cb => sub {
+       if (my $line = shift @lines) {
+          chomp($line);
+          if( $line eq "off" ) {
+              say "Preparing for turn off";
+              # write data from $data_channel to a file and kill
+          }
+          if( $line eq "status" ) {
+              $size = $data_channel->size;
+              $percent = $size * 100 / $bitfields_num;
+              say "$percent % done";
+          }
+       } else {
+             undef $idle_w;
+       }
+    });
 });
-
 
 cede;
 EV::loop();
