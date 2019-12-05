@@ -59,7 +59,9 @@ my $thr =
 my $response = get($thr) or die "Cannot connect to tracker";
 my $tracker_response = bdecode($response);
 
-my $peers = $tracker_response->{'peers'};   # {port, peert id, ip}
+my $peers = $tracker_response->{'peers'};
+
+# $peers - {port, peert id, ip}
 
 my $pstr = "BitTorrent protocol";
 my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_id;
