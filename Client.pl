@@ -83,10 +83,10 @@ my $data_channel = new Coro::Channel;
 # {piece_num, piece_data, piece_percent, piece_size}
 
 # TODO:
-# get a piece number from piece_channel,
-# download and put that in $data_channel,
-# if that piece doesnt exists on the peer,
-# put that piece number back on to piece_channel,
+# get piece number from piece_channel,
+# download and put in $data_channel,
+# if piece doesnt exists on the peer,
+# put piece number back on to piece_channel,
 # other worker may download it.
 
 for my $n (0..5) {
