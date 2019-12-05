@@ -65,7 +65,7 @@ my $pstr = "BitTorrent protocol";
 my $message = pack 'C1A*a8a20a20', length($pstr), $pstr, '',  $info_hash, $peer_id;
 
 my $bitfields_num = length($torrent->{info}->{pieces}) / 20;
-my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);  # length - 4 bytes, id - 2 bytes, $bitfields_num / 8 - bitfields bytes
+my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);  # length - 4 bytes, id - 1 bytes, $bitfields_num / 8 - bitfields bytes
 
 my $piece_channel = new Coro::Channel;
 for my $n (0..$bitfields_num) {
@@ -90,8 +90,6 @@ for my $n (0..5) {
         my ($bitfield_length, $bitfield_id, $bitfield_data) = unpack 'N1 C1' . ' B' . $bitfields_num, $bitfield;
 
         if( $info_hash eq $info_hash_r ) {
-            say "< $n > peer: ", $bitfield_data;
-            say "< $n > peer: ", length($bitfield_data);
             # ...
             # get a piece number from piece_channel, download and put that in $data_channel, if that piece doesnt exists on the peer, put that piece number back on to piece_channel, so that other worker may download it.
         }
