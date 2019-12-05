@@ -89,7 +89,6 @@ for my $n (0..5) {
         my ($bitfield_length, $bitfield_id, $bitfield_data) = unpack 'N1 C1' . ' B' . $bitfields_num, $bitfield;
 
         if( $info_hash eq $info_hash_r ) {
-            say $piece_channel->size;
             # ...
             # get a piece number from piece_channel, download and put that in $data_channel, if that piece doesnt exists on the peer, put that piece number back on to piece_channel, so that other worker may download it.
         }
