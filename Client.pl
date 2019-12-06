@@ -30,12 +30,18 @@ fun torrent_file_content($file) {
     return $contents;
 }
 
+fun save_data_to_file() {
+    say "put data_channel to file";
+}
+
 my $torrent_file = 'ubuntu-18.04.3-desktop-amd64.iso.torrent';
 my $torrent      = bdecode( torrent_file_content($torrent_file) );
 
 my $file_name = $torrent->{'info'}->{'name'};
 my $file_length = $torrent->{'info'}->{'length'};
 my $piece_length = $torrent->{'info'}->{'piece length'};
+
+my $pieces_number = length($torrent->{'info'}->{'pieces'}) / 20;
 
 my $info_hash  = Encode::encode( "ISO-8859-1", sha1( bencode( $torrent->{'info'} ) ) );
 my $announce   = $torrent->{'announce'};
@@ -127,46 +133,57 @@ for my $n (0..5) {
 
                     if( $bitfield_array[$piece_index] eq '1' ) {
                         # piece exists on the peer
-                        if( $piece_index == $bitfields_num ) {
-                            # handle last piece
-                            # ...
-                        }
-                        else {
-                            my $piece_data;
-                            my $piece_offset = 0;
-                            my $request_pack;
-                            my $request;
+                        my $piece_data = '';
+                        my $piece_offset = 0;
 
-                            BLOCKLOOP: {
-                                my $block_buf;
-                                my $block_buf_size = 4 + 1 + 4 + 4 + $block_length;
+                        BLOCKLOOP: {
+                            my $block_buf;
+                            my $block_buf_size = 4 + 1 + 4 + 4 + $block_length;
 
-                                if( $piece_offset == $piece_length ) {
+                            if( $piece_index == $bitfields_num ) {
+                                # handle last piece
+                                # $bitfields_num = number of pieces
+
+                                my $extra = ($bitfields_num * $piece_length) - $file_length;
+                                my $last_piece_length = $piece_length - $extra;
+
+                                if ( $piece_offset == $last_piece_length ) {
+                                    # 0 extra bits in the last block in ubuntu 18.04.3 tottent (manually checked).
                                     my %piece_hash = ('piece_index' => $piece_index, 'piece_data' => $piece_data, 'piece_percent' => 100, 'piece_size' => $piece_length);
                                     my $piece_hash_json = encode_json \%piece_hash;
                                     $data_channel->put($piece_hash_json);
                                     goto PIECELOOP;
                                 }
-
-                                $request_pack = pack 'NNN', $piece_index, $piece_offset, $block_length;
-                                $request = pack 'Nca*', length($request_pack) + 1, 6, $request_pack;
-
-                                $fh->syswrite($request);
-                                $fh->sysread($block_buf, $block_buf_size);
-
-                                my ($r_block_length, $r_block_id, $r_block_pack) = unpack 'Nca*', $block_buf;
-                                my ($r_block_index, $r_block_offset, $r_block_data) = unpack 'NN'. 'a'.($r_block_length - 9), $r_block_pack;
-
-                                $piece_data = $piece_data . $r_block_data;
-                                $piece_offset = $piece_offset + $block_length;
-
-                                # ...
-                                goto BLOCKLOOP;
                             }
+
+                            if( $piece_offset == $piece_length ) {
+                                my %piece_hash = ('piece_index' => $piece_index, 'piece_data' => $piece_data, 'piece_percent' => 100, 'piece_size' => $piece_length);
+                                my $piece_hash_json = encode_json \%piece_hash;
+                                $data_channel->put($piece_hash_json);
+                                goto PIECELOOP;
+                            }
+
+                            my $request_pack = pack 'NNN', $piece_index, $piece_offset, $block_length;
+                            my $request = pack 'Nca*', length($request_pack) + 1, 6, $request_pack;
+
+                            $fh->syswrite($request);
+                            $fh->sysread($block_buf, $block_buf_size);
+
+                            my ($r_block_length, $r_block_id, $r_block_pack) = unpack 'Nca*', $block_buf;
+                            my $r_block_data_length = ($r_block_length - 9);
+                            my $unpack = 'NN'. 'a' . $r_block_data_length;
+                            my ($r_block_index, $r_block_offset, $r_block_data) = unpack $unpack, $r_block_pack;
+
+                            $piece_data = $piece_data . $r_block_data;
+                            $piece_offset = $piece_offset + $block_length;
+
+                            # ...
+                            goto BLOCKLOOP;
                         }
                     }
                     else {
                         # put back piece_index on piece channel
+                        # let other workers download it
                         $piece_channel->put($piece_index);
                         goto PIECELOOP;
                     }
@@ -186,7 +203,7 @@ async {
         Coro::AnyEvent::sleep 60;
 
         if( $piece_channel->size == 0 ) {
-            # get data from $data_channel, arrange it in order and write that to a file
+            save_data_to_file();
         }
     }
 };
@@ -202,7 +219,7 @@ my $io_w = AnyEvent->io (fh => \*STDIN, poll => 'r', cb => sub {
           chomp($line);
           if( $line eq "off" ) {
               say "Preparing for turn off";
-              # write data from $data_channel to a file and kill
+              save_data_to_file();
           }
           if( $line eq "status" ) {
               $size = $data_channel->size;
