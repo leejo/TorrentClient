@@ -142,13 +142,16 @@ for my $n (0..5) {
 
                             BLOCKLOOP: {
                                 my $block_buf;
-                                my $block_buf_size = 4 + 1 + 4 + 4 + ($block_length / 8);
+                                my $block_buf_size = 4 + 1 + 4 + 4 + $block_length;
 
                                 $request_pack = pack 'NNN', $piece_index, $piece_offset, $block_length;
                                 $request = pack 'Nca*', length($request_pack) + 1, 6, $request_pack;
 
                                 $fh->syswrite($request);
                                 $fh->sysread($block_buf, $block_buf_size);
+                                my ($r_block_length, $r_block_id, $r_block_pack) = unpack 'Nca*', $block_buf;
+                                my ($r_block_index, $r_block_offset, $r_block_data) = unpack 'NN'. 'a'.($r_block_length - 9), $r_block_pack;
+
                                 # ...
                                 # goto BLOCKLOOP;
                             }
