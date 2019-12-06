@@ -84,7 +84,7 @@ for my $n (0..$bitfields_num) {
 my $data_channel = new Coro::Channel;
 
 # put piece data in json format,
-# {piece_num, piece_data, piece_percent, piece_size}
+# {piece_index, piece_data, piece_percent, piece_size}
 
 # TODO:
 # get piece index from piece_channel,
@@ -123,8 +123,6 @@ for my $n (0..5) {
 
                 PIECELOOP: {
                     my $block_length = 2 ** 14;
-                    my $num_blocks = ceil($piece_length / $block_length);
-
                     my $piece_index = $piece_channel->get;
 
                     if( $bitfield_array[$piece_index] eq '1' ) {
@@ -134,7 +132,6 @@ for my $n (0..5) {
                             # ...
                         }
                         else {
-                            my $block_counter = 0;
                             my $piece_data;
                             my $piece_offset = 0;
                             my $request_pack;
@@ -144,19 +141,28 @@ for my $n (0..5) {
                                 my $block_buf;
                                 my $block_buf_size = 4 + 1 + 4 + 4 + $block_length;
 
+                                if( $piece_offset == $piece_length ) {
+                                    my %piece_hash = ('piece_index' => $piece_index, 'piece_data' => $piece_data, 'piece_percent' => 100, 'piece_size' => $piece_length);
+                                    my $piece_hash_json = encode_json \%piece_hash;
+                                    $data_channel->put($piece_hash_json);
+                                    goto PIECELOOP;
+                                }
+
                                 $request_pack = pack 'NNN', $piece_index, $piece_offset, $block_length;
                                 $request = pack 'Nca*', length($request_pack) + 1, 6, $request_pack;
 
                                 $fh->syswrite($request);
                                 $fh->sysread($block_buf, $block_buf_size);
+
                                 my ($r_block_length, $r_block_id, $r_block_pack) = unpack 'Nca*', $block_buf;
                                 my ($r_block_index, $r_block_offset, $r_block_data) = unpack 'NN'. 'a'.($r_block_length - 9), $r_block_pack;
 
-                                # ...
-                                # goto BLOCKLOOP;
-                            }
+                                $piece_data = $piece_data . $r_block_data;
+                                $piece_offset = $piece_offset + $block_length;
 
-                            # goto PIECELOOP;
+                                # ...
+                                goto BLOCKLOOP;
+                            }
                         }
                     }
                     else {
