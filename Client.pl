@@ -152,12 +152,13 @@ for my $n (0..5) {
                                 # ...
                                 # goto BLOCKLOOP;
                             }
+
+                            # goto PIECELOOP;
                         }
                     }
                     else {
                         # put back piece_index on piece channel
                         $piece_channel->put($piece_index);
-                        say "going back to loop";
                         goto PIECELOOP;
                     }
                 }
