@@ -99,7 +99,7 @@ my $data_channel = new Coro::Channel;
 # put piece index back on to piece_channel,
 # other worker may download it.
 
-for my $n (0..5) {
+for my $n (0..8) {
     async {
         tcp_connect $peers->[$n]->{'ip'}, $peers->[$n]->{'port'}, Coro::rouse_cb;
         my $fh = unblock +(Coro::rouse_wait)[0];
