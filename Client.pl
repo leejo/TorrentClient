@@ -34,7 +34,7 @@ fun torrent_file_content($file) {
 }
 
 fun save_piece($content, $name) {
-	my $fh = aio_open "pieces/$name", O_WRONLY | O_TRUNC | O_CREAT, 0666 or warn "Error: $!";
+    my $fh = aio_open "pieces/$name", O_WRONLY | O_TRUNC | O_CREAT, 0666 or warn "Error: $!";
     aio_write $fh, 0, length($content), $content, 0 or warn "aio_write: $!";
     aio_close $fh;
 }
