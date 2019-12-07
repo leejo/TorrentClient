@@ -20,7 +20,7 @@ use LWP::Simple qw(get);
 # 1. make it work for single file torrent
 
 # TODO:
-# Implement a server.
+# implement a server
 
 fun torrent_file_content($file) {
     my $contents;
@@ -40,7 +40,7 @@ fun save_piece($content, $name) {
 }
 
 fun make_file() {
-    say "put data_channel to file";
+    say "make a file from pieces";
 }
 
 my $torrent_file = 'ubuntu-18.04.3-live-server-amd64.iso.torrent';
@@ -90,7 +90,7 @@ my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);
 # $bitfields_num / 8 - bitfields bytes
 
 my $piece_channel = new Coro::Channel;
-for my $n (0..$bitfields_num) {
+for my $n (0..$bitfields_num - 1) {
     $piece_channel->put($n);
 }
 
@@ -128,9 +128,13 @@ for my $n (0..8) {
 
                 PIECELOOP: {
                     my $block_length = 2 ** 14;
+
+                    if( $piece_channel->size == 0 ) {
+                        terminate;
+                    }
                     my $piece_index = $piece_channel->get;
 
-                    if( $bitfield_array[$piece_index] == 1 && defined($bitfield_array[$piece_index]) ) {
+                    if( defined($bitfield_array[$piece_index]) && $bitfield_array[$piece_index] == 1 ) {
                         # piece exists on the peer
                         my $piece_data = '';
                         my $piece_offset = 0;
@@ -139,7 +143,7 @@ for my $n (0..8) {
                             my $block_buf;
                             my $block_buf_size = 4 + 1 + 4 + 4 + $block_length;
 
-                            if( $piece_index == $bitfields_num - 1 ) { # recheck if -1 is necessary
+                            if( $piece_index == $bitfields_num - 1 ) {
                                 # handle last piece
                                 # $bitfields_num = number of pieces
 
@@ -147,7 +151,6 @@ for my $n (0..8) {
                                 my $last_piece_length = $piece_length - $extra;
 
                                 if ( $piece_offset == $last_piece_length ) {
-                                    # 0 extra bits in the last block in ubuntu 18.04.3 tottent (manually checked).
                                     $data_channel->put( $piece_index );
                                     save_piece($piece_data, $piece_index);
                                     goto PIECELOOP;
@@ -155,7 +158,6 @@ for my $n (0..8) {
                             }
 
                             if( $piece_offset == $piece_length ) {
-                                #my $piece_json = encode_json \%piece_hash;
                                 $data_channel->put( $piece_index );
                                 save_piece($piece_data, $piece_index);
                                 goto PIECELOOP;
@@ -182,6 +184,8 @@ for my $n (0..8) {
                     else {
                         # put back piece_index on piece channel
                         # let other workers download it
+                        Coro::AnyEvent::sleep 1;
+                        say "Not fount in bitfield array";
                         $piece_channel->put($piece_index);
                         goto PIECELOOP;
                     }
@@ -189,8 +193,7 @@ for my $n (0..8) {
             }
             elsif( $id == 0 ) {
                 # Got Choke
-                # prepare to end connection
-                # ...
+                terminate;
             }
         }
     };
@@ -201,6 +204,7 @@ async {
         Coro::AnyEvent::sleep 60;
 
         if( $piece_channel->size == 0 ) {
+            Coro::AnyEvent::sleep 600;
             make_file();
         }
         else {
@@ -210,23 +214,6 @@ async {
         }
     }
 };
-
-my @lines;
-my $idle_w;
-my $io_w = AnyEvent->io (fh => \*STDIN, poll => 'r', cb => sub {
-    push @lines, scalar <STDIN>;
-    $idle_w ||= AnyEvent->idle (cb => sub {
-       if (my $line = shift @lines) {
-          chomp($line);
-          if( $line eq "off" ) {
-              say "Preparing for turn off";
-              # ...
-          }
-       } else {
-             undef $idle_w;
-       }
-    });
-});
 
 cede;
 EV::loop();
