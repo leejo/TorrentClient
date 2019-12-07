@@ -130,7 +130,7 @@ for my $n (0..8) {
                     my $block_length = 2 ** 14;
                     my $piece_index = $piece_channel->get;
 
-                    if( $bitfield_array[$piece_index] == 1 || !undef($bitfield_array[$piece_index]) ) {
+                    if( $bitfield_array[$piece_index] == 1 || !defined($bitfield_array[$piece_index]) ) {
                         # piece exists on the peer
                         my $piece_data = '';
                         my $piece_offset = 0;
