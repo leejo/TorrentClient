@@ -8,6 +8,7 @@ use Coro;
 use Coro::AnyEvent;
 use AnyEvent::Socket;
 use Coro::Handle;
+use Coro::AIO;
 use Digest::SHA1 qw(sha1);
 use JSON::XS;
 use Encode;
@@ -15,9 +16,11 @@ use Bencode qw(bencode bdecode);
 use Data::Dumper;
 use LWP::Simple qw(get);
 
-
 # TODO:
 # 1. make it work for single file torrent
+
+# TODO:
+# Implement a server.
 
 fun torrent_file_content($file) {
     my $contents;
@@ -30,18 +33,22 @@ fun torrent_file_content($file) {
     return $contents;
 }
 
-fun save_data_to_file() {
+fun save_piece($content, $name) {
+	my $fh = aio_open "pieces/$name", O_WRONLY | O_TRUNC | O_CREAT, 0666 or warn "Error: $!";
+    aio_write $fh, 0, length($content), $content, 0 or warn "aio_write: $!";
+    aio_close $fh;
+}
+
+fun make_file() {
     say "put data_channel to file";
 }
 
-my $torrent_file = 'ubuntu-18.04.3-desktop-amd64.iso.torrent';
+my $torrent_file = 'ubuntu-18.04.3-live-server-amd64.iso.torrent';
 my $torrent      = bdecode( torrent_file_content($torrent_file) );
 
 my $file_name = $torrent->{'info'}->{'name'};
 my $file_length = $torrent->{'info'}->{'length'};
 my $piece_length = $torrent->{'info'}->{'piece length'};
-
-my $pieces_number = length($torrent->{'info'}->{'pieces'}) / 20;
 
 my $info_hash  = Encode::encode( "ISO-8859-1", sha1( bencode( $torrent->{'info'} ) ) );
 my $announce   = $torrent->{'announce'};
@@ -89,15 +96,7 @@ for my $n (0..$bitfields_num) {
 
 my $data_channel = new Coro::Channel;
 
-# put piece data in json format,
-# {piece_index, piece_data, piece_percent, piece_size}
-
-# TODO:
-# get piece index from piece_channel,
-# download and put in $data_channel,
-# if piece doesnt exists on the peer,
-# put piece index back on to piece_channel,
-# other worker may download it.
+# put completed piece_index in data channel
 
 for my $n (0..8) {
     async {
@@ -131,7 +130,7 @@ for my $n (0..8) {
                     my $block_length = 2 ** 14;
                     my $piece_index = $piece_channel->get;
 
-                    if( $bitfield_array[$piece_index] eq '1' ) {
+                    if( $bitfield_array[$piece_index] == 1 || !undef($bitfield_array[$piece_index]) ) {
                         # piece exists on the peer
                         my $piece_data = '';
                         my $piece_offset = 0;
@@ -140,7 +139,7 @@ for my $n (0..8) {
                             my $block_buf;
                             my $block_buf_size = 4 + 1 + 4 + 4 + $block_length;
 
-                            if( $piece_index == $bitfields_num ) {
+                            if( $piece_index == $bitfields_num - 1 ) { # recheck if -1 is necessary
                                 # handle last piece
                                 # $bitfields_num = number of pieces
 
@@ -149,17 +148,16 @@ for my $n (0..8) {
 
                                 if ( $piece_offset == $last_piece_length ) {
                                     # 0 extra bits in the last block in ubuntu 18.04.3 tottent (manually checked).
-                                    my %piece_hash = ('piece_index' => $piece_index, 'piece_data' => $piece_data, 'piece_percent' => 100, 'piece_size' => $piece_length);
-                                    my $piece_hash_json = encode_json \%piece_hash;
-                                    $data_channel->put($piece_hash_json);
+                                    $data_channel->put( $piece_index );
+                                    save_piece($piece_data, $piece_index);
                                     goto PIECELOOP;
                                 }
                             }
 
                             if( $piece_offset == $piece_length ) {
-                                my %piece_hash = ('piece_index' => $piece_index, 'piece_data' => $piece_data, 'piece_percent' => 100, 'piece_size' => $piece_length);
-                                my $piece_hash_json = encode_json \%piece_hash;
-                                $data_channel->put($piece_hash_json);
+                                #my $piece_json = encode_json \%piece_hash;
+                                $data_channel->put( $piece_index );
+                                save_piece($piece_data, $piece_index);
                                 goto PIECELOOP;
                             }
 
@@ -170,8 +168,8 @@ for my $n (0..8) {
                             $fh->sysread($block_buf, $block_buf_size);
 
                             my ($r_block_length, $r_block_id, $r_block_pack) = unpack 'Nca*', $block_buf;
-                            my $r_block_data_length = ($r_block_length - 9);
-                            my $unpack = 'NN'. 'a' . $r_block_data_length;
+                            my $r_block_data_length = 16384; #($r_block_length - 9);
+                            my $unpack = 'N N'. ' a' . $r_block_data_length;
                             my ($r_block_index, $r_block_offset, $r_block_data) = unpack $unpack, $r_block_pack;
 
                             $piece_data = $piece_data . $r_block_data;
@@ -203,7 +201,12 @@ async {
         Coro::AnyEvent::sleep 60;
 
         if( $piece_channel->size == 0 ) {
-            save_data_to_file();
+            make_file();
+        }
+        else {
+            my $size = $data_channel->size;
+            my $percent = $size * 100 / $bitfields_num;
+            say "$percent % done";
         }
     }
 };
@@ -211,20 +214,13 @@ async {
 my @lines;
 my $idle_w;
 my $io_w = AnyEvent->io (fh => \*STDIN, poll => 'r', cb => sub {
-    my $size;
-    my $percent;
     push @lines, scalar <STDIN>;
     $idle_w ||= AnyEvent->idle (cb => sub {
        if (my $line = shift @lines) {
           chomp($line);
           if( $line eq "off" ) {
               say "Preparing for turn off";
-              save_data_to_file();
-          }
-          if( $line eq "status" ) {
-              $size = $data_channel->size;
-              $percent = $size * 100 / $bitfields_num;
-              say "$percent % done";
+              # ...
           }
        } else {
              undef $idle_w;
