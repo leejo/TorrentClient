@@ -10,21 +10,18 @@ use AnyEvent::Socket;
 use Coro::Handle;
 use Coro::AIO;
 use Digest::SHA1 qw(sha1);
-use JSON::XS;
 use Encode;
 use Bencode qw(bencode bdecode);
-use Data::Dumper;
 use LWP::Simple qw(get);
-
-# TODO:
-# 1. make it work for single file torrent
+use Try::Tiny;
+use File::Path 'rmtree';
 
 # TODO:
 # implement a server
 
-fun torrent_file_content($file) {
+fun file_content($file) {
     my $contents;
-    open( my $fh, '<', $file ) or die "Cannot open torrent file";
+    open( my $fh, '<', $file ) or die "Cannot open torrent $file";
     {
         local $/;
         $contents = <$fh>;
@@ -39,15 +36,11 @@ fun save_piece($content, $name) {
     aio_close $fh;
 }
 
-fun make_file() {
-    say "make a file from pieces";
-}
+my $torrent_file = 'ubuntu-18.04.3-desktop-amd64.iso.torrent';
+my $torrent      = bdecode( file_content($torrent_file) );
 
-my $torrent_file = 'ubuntu-18.04.3-live-server-amd64.iso.torrent';
-my $torrent      = bdecode( torrent_file_content($torrent_file) );
-
-my $file_name = $torrent->{'info'}->{'name'};
-my $file_length = $torrent->{'info'}->{'length'};
+my $file_name    = $torrent->{'info'}->{'name'};
+my $file_length  = $torrent->{'info'}->{'length'};
 my $piece_length = $torrent->{'info'}->{'piece length'};
 
 my $info_hash  = Encode::encode( "ISO-8859-1", sha1( bencode( $torrent->{'info'} ) ) );
@@ -89,14 +82,12 @@ my $bitfield_num_bytes = 4 + 1 + ceil($bitfields_num / 8);
 # length - 4 bytes, id - 1 bytes,
 # $bitfields_num / 8 - bitfields bytes
 
+mkdir( 'pieces' );
+
 my $piece_channel = new Coro::Channel;
 for my $n (0..$bitfields_num - 1) {
     $piece_channel->put($n);
 }
-
-my $data_channel = new Coro::Channel;
-
-# put completed piece_index in data channel
 
 for my $n (0..8) {
     async {
@@ -106,12 +97,21 @@ for my $n (0..8) {
         my $buf;
         my $bitfield;
 
-        $fh->syswrite($message);
+        try {
+            $fh->syswrite($message);
+        } catch {
+              terminate;
+        };
+
         $fh->sysread($buf, length($message));
         $fh->sysread($bitfield, $bitfield_num_bytes);
 
         my ($pstr_r, $reserved_r, $info_hash_r, $peer_id_r, $c) = unpack 'C/a a8 a20 a20 a*', $buf;
         my ($bitfield_length, $bitfield_id, $bitfield_data) = unpack 'N1 C1' . ' B' . $bitfields_num, $bitfield;
+
+        if( !defined($bitfield_data) || !defined($info_hash_r) ) {
+            terminate;
+        }
 
         my @bitfield_array = split("", $bitfield_data);
 
@@ -151,14 +151,12 @@ for my $n (0..8) {
                                 my $last_piece_length = $piece_length - $extra;
 
                                 if ( $piece_offset == $last_piece_length ) {
-                                    $data_channel->put( $piece_index );
                                     save_piece($piece_data, $piece_index);
                                     goto PIECELOOP;
                                 }
                             }
 
                             if( $piece_offset == $piece_length ) {
-                                $data_channel->put( $piece_index );
                                 save_piece($piece_data, $piece_index);
                                 goto PIECELOOP;
                             }
@@ -185,7 +183,6 @@ for my $n (0..8) {
                         # put back piece_index on piece channel
                         # let other workers download it
                         Coro::AnyEvent::sleep 1;
-                        say "Not fount in bitfield array";
                         $piece_channel->put($piece_index);
                         goto PIECELOOP;
                     }
@@ -204,13 +201,36 @@ async {
         Coro::AnyEvent::sleep 60;
 
         if( $piece_channel->size == 0 ) {
-            Coro::AnyEvent::sleep 600;
-            make_file();
-        }
-        else {
-            my $size = $data_channel->size;
-            my $percent = $size * 100 / $bitfields_num;
-            say "$percent % done";
+            say "Your download will complete in 5 minutes";
+            Coro::AnyEvent::sleep 300;
+            # wait 5 minutes for the running Coro's to terminate
+
+            opendir(Dir, 'pieces') || die "Can't open directory pieces: $!\n";
+            my @list = readdir(Dir);
+            closedir(Dir);
+
+            shift(@list);
+            shift(@list);
+
+            my @sort_files = sort { $a <=> $b } @list;
+            my $data = '';
+
+            for my $file (0..$#sort_files) {
+                my $file_piece_content = file_content( 'pieces/' . $sort_files[$file]);
+                $data = $data . $file_piece_content;
+            }
+
+            open ( my $of, '>', $file_name) or die "Cannot write to $file_name";
+            print $of $data;
+            close($of);
+
+            rmtree([ "pieces" ]);
+
+            say "Download Complete";
+            # you need to burn the iso to CD/DVD to boot it. you cannot boot this iso from USB
+            # https://askubuntu.com/questions/329704/syslinux-no-default-or-ui-configuration-directive-found
+
+            terminate;
         }
     }
 };
