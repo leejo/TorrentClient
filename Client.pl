@@ -227,7 +227,7 @@ async {
             rmtree([ "pieces" ]);
 
             say "Download Complete";
-            # you need to burn the iso to CD/DVD to boot it. you cannot boot this iso from USB
+            
             # https://askubuntu.com/questions/329704/syslinux-no-default-or-ui-configuration-directive-found
 
             terminate;
